@@ -447,7 +447,7 @@ Results = pd.DataFrame({"Columns": X_std.columns, "Cluster 1": model.cluster_cen
 # Precision score = 0.66
 
 
-
+# Please refer to report file for clustering insights 
 
 
 
