@@ -1,3 +1,2 @@
 # Kickstarter-Supervised Model & Unsupervised Model
-To predict whether a kickstarter project will be successful or fail using a classification model &
-To make inferences or business insights on the data pattern using Unsupervised modelling  
+The goal of the project is to develop a classification model to predict whether a project will be a "Successful" or "Failure". In addition to making inferences or business insights on the variables using UnSupervised ML 
