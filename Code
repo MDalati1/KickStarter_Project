@@ -1,0 +1,454 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+@author: Mohamad Dalati 
+
+
+# Load Libraries
+from sklearn.tree import DecisionTreeClassifier
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Lasso
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api
+from sklearn import metrics
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score 
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.cluster import KMeans 
+from matplotlib import pyplot
+from sklearn import datasets
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+
+# In[2]:
+
+
+# Import data
+df = pd.read_excel("/Users/mohamaddalati/Desktop/INSY-662/Individual Project/Kickstarter.xlsx")
+pd.set_option('display.max_columns', None) # To force show all columns 
+df.head()
+
+
+# In[3]:
+
+
+df.shape
+
+
+# In[4]:
+
+
+df.isna().sum()
+
+
+# In[249]:
+
+
+# Identifying missing values 
+# Missing 1,392 observations exist only in the category variable
+# 1 Missing observation in the name variable 
+# 4 of the name_len, name_len_clean, blurb_len, and blurb_len_clean of each are missing 
+df.head()
+
+
+# # Data Pre-Processing
+
+# In[5]:
+
+
+### Handling Missing values 
+# Approach 1) Replace category missing values with the most frequently occuring value in the column 
+# Approach 2) Dropping NaN values 
+
+# Approach 1 (NOT SUCCESSFUL)
+# def impute_nan_most_frequent_category(DataFrame,ColName):
+#     # .mode()[0] - gives first category name
+#      most_frequent_category = DataFrame[ColName].mode()[0]
+    
+#     # replace nan values with most occured category
+#      DataFrame[ColName + "_Imputed"] = DataFrame[ColName]
+#      DataFrame[ColName + "_Imputed"].fillna(most_frequent_category,inplace=True)
+    
+# # Call function 
+# for Columns in ['category']:
+#     impute_nan_most_frequent_category(df,Columns)
+    
+# # Display imputed result
+# df[['category','category_Imputed']].head(10) 
+# Drop the category column with this imputed ones
+# df.drop(labels = ['category'], axis = 1, inplace = True)
+# # renaming it back to category 
+# df.rename(columns = {'category_Imputed':'category'}, inplace = True)
+
+# this results in 74% and dropping values result in 75% accuracy score 
+##### Results were lower than just simply dropping them 
+
+# Approach 2 (BETTER RESULTS)
+# Drop missing values 
+df = df.dropna() 
+
+# Drop variables who has the value constant throughout = NONE
+
+# Only keep "successful" and "failed" observations in 'state' variable 
+df['state'].value_counts() 
+df = df[ df['state'] != 'canceled' ]
+df = df[ df['state'] != 'suspended' ]
+
+# Drop irrelevant variables 
+df.drop(labels = ['id', 'name'], axis = 1, inplace = True)
+
+# Checked to see if any categorical variable had a lot of categories in. But none had any therefore, there was no 
+# no need to reclassify any categorical variables chosen. Ex: shown for country variable. 
+df['country'].value_counts()
+# It only contained 18 < 50, so no need for reclassification
+
+# The model should only use the predictors that are available at the moment when a new project is launched
+# The variable static_usd_rate will be dropped since it's relating to the variable pledged and usd_pledged 
+df.drop(labels = ['pledged', 'currency', 'state_changed_at', 'static_usd_rate','staff_pick', 'backers_count', 
+                           'usd_pledged', 'spotlight','state_changed_at_weekday', 'state_changed_at_month', 
+                           'state_changed_at_day', 'state_changed_at_yr', 'state_changed_at_hr', 
+                           'launch_to_state_change_days'], axis = 1, inplace = True)
+
+
+# Drop any variables with data since we already have other variables capturing the month, day, and hr 
+df.drop(labels = ['deadline', 'created_at', 'launched_at'], axis = 1, inplace = True)
+
+
+# Dummify Categorical variables (Transform Categorical Variables to Numerical Indicators or values)
+df = pd.get_dummies(columns = ['disable_communication', 'country', 'category',
+                               'deadline_weekday', 'created_at_weekday', 
+                               'launched_at_weekday'], drop_first = True, data = df)
+# compared country and currency but country gave a better performance so I dropped currency
+
+# Target variable "state" is already a categorical variable, but need to transform it to numerical value 
+df = pd.get_dummies(df, columns = ['state'], drop_first = True) # column is "state_successful"
+
+
+### Correlation
+correlation_matrix = df.corr()
+df.drop(columns = ['name_len', 'blurb_len'], axis = 1, inplace = True)
+# name_len and blurb_len have high positive correlation >0.70 with name_len_clean and blurb_len_clean
+# https://towardsdatascience.com/eveything-you-need-to-know-about-interpreting-correlations-2c485841c0b8
+# remove anything > 0.70 bcz it'll lead to high and very high positive correlation 
+# To prevent double counting, I will remove the name_len and blurb_len from the dataset 
+
+
+### Outliers 
+numeric_col = ['goal','name_len_clean','blurb_len_clean', 'create_to_launch_days', 'launch_to_deadline_days']
+df.boxplot(numeric_col)
+
+#  Script for Removing outliers 
+# for x in ['goal']:
+#     q75,q25 = np.percentile(df.loc[:,x],[75,25])
+#     intr_qr = q75-q25
+ 
+#     max = q75+(1.5*intr_qr)
+#     min = q25-(1.5*intr_qr)
+ 
+#     df.loc[df[x] < min,x] = np.nan
+#     df.loc[df[x] > max,x] = np.nan
+
+
+# # Data Initializing
+
+# In[6]:
+
+
+X = df.drop(columns = ["state_successful"]) # all except the target variable
+y = df["state_successful"]
+
+
+# # Gradient Boosting Algorithm
+
+# In[7]:
+
+
+# Split the data into training and test set
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.33, random_state = 600)
+# higher random state for reproducibility purposes
+# To make the predictions about the projects consistent throughout various projects
+
+
+# In[8]:
+
+
+gbt = GradientBoostingClassifier(random_state = 0)
+
+tuning_params =  {
+    "n_estimators": [100, 150], 
+    "learning_rate": [0.025, 0.05, 0.075, 0.1], # to test various contribution of each tree 
+    "min_samples_split": [5, 10, 15, 20], # to prevent overfitting
+    "max_depth":[3,5,8,10], # for amount of layer selection
+    "max_features":["log2","sqrt"] } # to define the max number of predictors required to split each node
+
+grid_search = GridSearchCV(estimator = gbt, 
+                           param_grid = tuning_params, 
+                           scoring = 'accuracy', n_jobs = -1, cv = 5) # this shows the number of folds! 
+
+grid_search.fit(X_train, y_train)
+
+
+# In[9]:
+
+
+scores = pd.DataFrame(grid_search.cv_results_)
+scores.head()
+
+
+# In[10]:
+
+
+grid_search.best_score_
+
+
+# In[11]:
+
+
+grid_search.best_params_
+
+
+# In[13]:
+
+
+gbt = GradientBoostingClassifier(random_state = 0, n_estimators = 100, learning_rate = 0.075, max_depth = 10, 
+                                 max_features = 'log2', min_samples_split = 20)
+
+
+model_gbt = gbt.fit(X_train, y_train) 
+
+# Make predictions
+y_test_pred = model_gbt.predict(X_test)
+
+# Check Scores 
+print('Accuracy score =', metrics.accuracy_score(y_test, y_test_pred))
+
+print('Precision score =', metrics.precision_score(y_test, y_test_pred))
+
+print('Recall score =', metrics.recall_score(y_test, y_test_pred))
+
+print('F1 score =', metrics.f1_score(y_test, y_test_pred))
+
+print('\n')
+
+print(pd.DataFrame(metrics.confusion_matrix(y_test, y_test_pred, labels=[0,1]),
+                   index=['true:0', 'true:1'], columns=['pred:0', 'pred:1']))
+
+
+# plot the feature importance 
+pd.Series(model_gbt.feature_importances_, index = X.columns).sort_values(ascending = False).plot(kind = 'bar', figsize = (14,6))
+
+
+# In[14]:
+
+
+# Plot the confusion matrix 
+cm = confusion_matrix(y_test, y_test_pred, labels=gbt.classes_)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=gbt.classes_)
+disp.plot()
+
+plt.show()
+
+
+# ## Grading ##
+
+# In[ ]:
+
+
+# Import Grading Data
+kickstarter_grading_df = pd.read_excel("")
+
+# Pre-Process Grading Data
+kickstarter_grading_df = kickstarter_grading_df.dropna()
+
+# Only keep "successful" and "failed" observations in 'state' variable 
+kickstarter_grading_df = kickstarter_grading_df[ kickstarter_grading_df['state'] != 'canceled' ]
+kickstarter_grading_df = kickstarter_grading_df[ kickstarter_grading_df['state'] != 'suspended' ]
+
+# Drop irrelevant variables 
+kickstarter_grading_df.drop(labels = ['id', 'name'], axis = 1, inplace = True)
+
+
+# The model should only use the predictors that are available at the moment when a new project is launched
+# The variable static_usd_rate will be dropped since it's relating to the variable pledged and usd_pledged 
+kickstarter_grading_df.drop(labels = ['pledged', 'currency', 'state_changed_at', 'static_usd_rate','staff_pick', 
+                                      'backers_count', 'usd_pledged', 'spotlight','state_changed_at_weekday', 
+                                      'state_changed_at_month', 'state_changed_at_day', 'state_changed_at_yr', 
+                                      'state_changed_at_hr', 'launch_to_state_change_days'],axis = 1,inplace = True)
+
+
+# Drop the "data" variables since we already have other variables capturing the month, day, and hr 
+kickstarter_grading_df.drop(labels = ['deadline', 'created_at', 'launched_at'], axis = 1, inplace = True)
+
+
+# Dummify Categorical variables (Transform Categorical Variables to Numerical Indicators or values)
+kickstarter_grading_df = pd.get_dummies(columns = ['disable_communication', 'country', 'category',
+                                                   'deadline_weekday', 'created_at_weekday',
+                                                   'launched_at_weekday'], drop_first = True, data = kickstarter_grading_df)
+
+# Target variable "state" is already a categorical variable, but need to transform it to numerical value 
+kickstarter_grading_df = pd.get_dummies(kickstarter_grading_df, columns = ['state'], drop_first = True) 
+# ^ column is "state_successful"
+
+# Correlation
+kickstarter_grading_df.drop(columns = ['name_len', 'blurb_len'], axis = 1, inplace = True)
+
+
+# Setup the variables
+X_grading = kickstarter_grading_df.drop(columns = ["state_successful"]) # all except the target variable
+y_grading = kickstarter_grading_df["state_successful"]
+
+# Apply the model previously trained to the grading data
+y_grading_pred = model_gbt.predict(X_grading)
+
+# Calculate the accuracy score
+accuracy_score(y_grading, y_grading_pred)
+
+
+# # Clustering 
+# 
+
+# In[210]:
+
+
+# Import data
+df = pd.read_excel("/Users/mohamaddalati/Desktop/INSY-662/Individual Project/Kickstarter.xlsx")
+pd.set_option('display.max_columns', None) # To force show all columns 
+
+
+# In[211]:
+
+
+## Data Pre-processing
+# Only keep "successful" and "failed" classes in 'state' variable 
+df = df[ df['state'] != 'canceled' ]
+df = df[ df['state'] != 'suspended' ]
+
+# Drop missing values 
+df.dropna(inplace = True) 
+
+# Target variable "state" is a categorical variable, so we need to transform it to a numerical value 
+df = pd.get_dummies(df, columns = ['state'], drop_first = True) # column is "state_successful"
+
+
+# In[212]:
+
+
+# Drop unnecessary columns or labels
+df_updated = df [ ['state_successful', 'goal', 'pledged', 'launch_to_deadline_days', 'category'] ]
+# Note that I wanted I chose launched_at_month variable as well but the silhouette score was very low 
+# and wasn't able to gain much insights from it. 
+df_updated
+df = df_updated
+
+
+# In[213]:
+
+
+# Dummify variables
+df = pd.get_dummies(data = df, columns = ['category'], drop_first = True)
+
+
+# In[215]:
+
+
+X = df
+
+# Standardize 
+# Better to use Min-Max to reduce the variance 
+# Min-MaxScaler for Min-Max Standardization 
+Mscaler = MinMaxScaler()
+X_std = Mscaler.fit_transform(X)
+X_std = pd.DataFrame(X_std, columns=X.columns)
+
+
+# ## Elbow Method (evaluates within variation only)
+
+# In[216]:
+
+
+### Finding optimal K using elbow method
+from sklearn.cluster import KMeans
+withinss = [] 
+for i in range (2,11):   # testing K from 2 to 10  
+    kmeans = KMeans(n_clusters = i)
+    model = kmeans.fit(X_std)
+    withinss.append(model.inertia_)
+# the value here is the value of inertia (not much to interpret, go to plot)
+from matplotlib import pyplot
+pyplot.plot([2,3,4,5,6,7,8,9,10], withinss)
+# k = 5 looks good 
+
+
+# ## Silhoutte Score (Evaluates within and between cluster variations)
+
+# In[204]:
+
+
+from sklearn.metrics import silhouette_score
+for i in range (2,11):    
+    kmeans = KMeans(n_clusters=i)
+    model = kmeans.fit(X_std)
+    labels = model.labels_
+    print(i,':',silhouette_score(X_std,labels))
+# I will choose 6 clusters 
+
+
+# ## F-statistics is not reliable because since we have large dataset
+
+# ## Running K-Means with k = 6
+
+# In[217]:
+
+
+kmeans = KMeans(n_clusters = 6)
+model = kmeans.fit(X_std)
+labels = model.labels_
+clusters = pd.DataFrame(model.cluster_centers_, columns= X.columns)
+clusters
+
+
+# In[218]:
+
+
+from sklearn.metrics import silhouette_samples
+silhouette = silhouette_samples(X_std, labels)
+display(silhouette) # most variables scored > 0.5, meaning they got clustered correctly 
+
+
+# In[222]:
+
+
+pd.set_option('display.max_columns', None) # To force show all columns 
+pd.set_option('display.max_rows', 100) # To force show all rows 
+Results = pd.DataFrame({"Columns": X_std.columns, "Cluster 1": model.cluster_centers_[0], "Cluster 2": model.cluster_centers_[1],
+             "Cluster 3": model.cluster_centers_[2], "Cluster 4": model.cluster_centers_[3],
+                      "Cluster 5": model.cluster_centers_[4], "Cluster 6": model.cluster_centers_[5]})
+
+
+# In[227]:
+
+
+# Results
+
+# Confusion matrix: [[ 2365  352]
+#                   [ 625 678]]
+# Accuracy score = 0.77
+# Precision score = 0.66
+
+
+
+
+
+
+
